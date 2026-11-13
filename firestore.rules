@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return signedIn() && currentRole() == 'admin';
+    }
+
+    // Perfiles de usuario y roles
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // Todo usuario nuevo nace como "usuario"; solo el correo semilla nace admin.
+      allow create: if signedIn() && request.auth.uid == uid
+        && (request.resource.data.role == 'usuario'
+            || request.auth.token.email == 'admin@keepinventory.com');
+      // Un usuario edita su perfil pero NO su rol; el admin puede cambiar roles.
+      allow update: if signedIn()
+        && ((request.auth.uid == uid && request.resource.data.role == resource.data.role)
+            || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Inventario: cualquier usuario autenticado lee/crea/edita; solo admin elimina.
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isAdmin();
+    }
+  }
+}
